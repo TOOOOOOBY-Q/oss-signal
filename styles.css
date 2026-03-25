@@ -311,6 +311,27 @@ textarea {
   min-height: 1.5rem;
 }
 
+.warning-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 207, 92, 0.22);
+  background: rgba(255, 207, 92, 0.08);
+  color: var(--text);
+}
+
+.warning-panel strong {
+  font-size: 0.92rem;
+}
+
+.warning-panel ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .dashboard {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);

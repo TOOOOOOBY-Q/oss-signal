@@ -7,10 +7,14 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+$pathPython = Get-Command python -ErrorAction SilentlyContinue |
+  Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue
 $systemPython = "$env:LocalAppData\Programs\Python\Python313\python.exe"
 
 if (Test-Path $venvPython) {
   $pythonExe = $venvPython
+} elseif ($pathPython -and $pathPython -notlike "*WindowsApps*") {
+  $pythonExe = $pathPython
 } elseif (Test-Path $systemPython) {
   $pythonExe = $systemPython
 } else {

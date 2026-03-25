@@ -2,6 +2,7 @@ const repoInput = document.querySelector("#repoInput");
 const tokenInput = document.querySelector("#tokenInput");
 const analyzeButton = document.querySelector("#analyzeButton");
 const statusLine = document.querySelector("#statusLine");
+const warningPanel = document.querySelector("#warningPanel");
 const dashboard = document.querySelector("#dashboard");
 const attentionScore = document.querySelector("#attentionScore");
 const attentionLabel = document.querySelector("#attentionLabel");
@@ -121,9 +122,23 @@ document.querySelectorAll(".reveal").forEach((element) => observer.observe(eleme
 loadRepository();
 
 function normalizeRepo(value) {
-  const raw = value.trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\/+$/, "");
-  const parts = raw.split("/").filter(Boolean);
+  const raw = value.trim();
+  const isGitHubLocator =
+    /^https?:\/\/github\.com\//i.test(raw) ||
+    /^github\.com\//i.test(raw) ||
+    /^git@github\.com:/i.test(raw);
+  const normalized = raw
+    .replace(/^git@github\.com:/i, "")
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^github\.com\//i, "")
+    .replace(/[#?].*$/, "")
+    .replace(/\/+$/, "")
+    .replace(/\.git$/i, "");
+  const parts = normalized.split("/").filter(Boolean);
   if (parts.length !== 2) {
+    if (isGitHubLocator && parts.length > 2) {
+      return `${parts[0]}/${parts[1]}`;
+    }
     return null;
   }
 
@@ -284,6 +299,7 @@ async function loadRepository() {
 
   if (!repo) {
     setStatus("Use the format owner/repo, for example openai/openai-python.");
+    renderWarnings([]);
     dashboard.classList.add("hidden");
     return;
   }
@@ -376,6 +392,7 @@ async function loadRepository() {
     }
 
     dashboard.classList.add("hidden");
+    renderWarnings([]);
     setStatus(
       `Could not load that repository. ${error instanceof Error ? error.message : "Unknown error."}`
     );
@@ -595,8 +612,40 @@ function renderAnalysis(analysis) {
   renderContributors(analysis);
   reportOutput.value = buildReportMarkdown(analysis);
   workspaceNote.textContent = buildWorkspaceNote(analysis);
+  renderWarnings(buildWarningItems(analysis));
 
   document.querySelectorAll(".reveal").forEach((element) => observer.observe(element));
+}
+
+function renderWarnings(items) {
+  if (!items.length) {
+    warningPanel.innerHTML = "";
+    warningPanel.classList.add("hidden");
+    return;
+  }
+
+  warningPanel.innerHTML = `
+    <strong>Snapshot caveats</strong>
+    <ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+  `;
+  warningPanel.classList.remove("hidden");
+}
+
+function buildWarningItems(analysis) {
+  const items = [];
+
+  if (analysis.sampling.issuesTruncated || analysis.sampling.pullsTruncated) {
+    items.push(
+      `Backlog metrics are sampled from the first ${SAMPLE_LIMITS.issues} open issues and ${SAMPLE_LIMITS.pulls} open pull requests returned by GitHub.`
+    );
+  }
+
+  if (analysis.scoreLimitations.length) {
+    items.push(`The attention score excludes: ${analysis.scoreLimitations.join("; ")}.`);
+  }
+
+  items.push(...analysis.warnings);
+  return items;
 }
 
 function renderMetrics(analysis) {

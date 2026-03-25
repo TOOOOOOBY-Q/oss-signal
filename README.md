@@ -57,7 +57,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\dev.ps1
 ```
 
 4. Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
-5. Enter any public repository in `owner/repo` format.
+5. Enter any public repository in `owner/repo` format, or paste a GitHub repository URL.
 
 You can also deploy the folder directly to GitHub Pages.
 

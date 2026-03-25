@@ -24,6 +24,12 @@ function Resolve-Python {
     return $venvPython
   }
 
+  $pathPython = Get-Command python -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue
+  if ($pathPython -and $pathPython -notlike "*WindowsApps*") {
+    return $pathPython
+  }
+
   $candidates = @(
     "$env:LocalAppData\Programs\Python\Python313\python.exe",
     "$env:LocalAppData\Programs\Python\Python312\python.exe",

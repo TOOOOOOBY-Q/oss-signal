@@ -42,6 +42,7 @@ def test_home_page_renders_expected_shell() -> None:
     assert status == 200
     assert "OSS Signal" in body
     assert "workspaceNote" in body
+    assert "warningPanel" in body
     assert "./app.js" in body
 
 

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OSS Signal | Maintainer pressure, mapped</title>
+    <meta
+      name="description"
+      content="A GitHub-ready maintainer dashboard for public repositories. Inspect backlog pressure, release cadence, contributor concentration, and export a Codex application draft."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="topbar">
+        <a class="wordmark" href="#hero">OSS Signal</a>
+        <nav class="topnav">
+          <a href="#workspace">Workspace</a>
+          <a href="#report">Export</a>
+          <a href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero reveal" id="hero">
+          <div class="hero-copy">
+            <p class="eyebrow">Public repo intelligence for maintainers</p>
+            <h1>See where an open-source project is quietly starting to buckle.</h1>
+            <p class="hero-lede">
+              OSS Signal pulls live data from the GitHub API, turns it into backlog,
+              release, and ownership signals, then writes a clean markdown draft you can
+              reuse for grant or Codex applications.
+            </p>
+            <div class="hero-actions">
+              <a class="button" href="#workspace">Analyze a repo</a>
+              <button class="button button-secondary" type="button" data-demo="openai/openai-python">
+                Load demo
+              </button>
+            </div>
+          </div>
+          <div class="hero-art" aria-hidden="true">
+            <div class="hero-orbit orbit-one"></div>
+            <div class="hero-orbit orbit-two"></div>
+            <div class="hero-grid">
+              <span>TRIAGE</span>
+              <span>RELEASES</span>
+              <span>OWNERSHIP</span>
+              <span>EXPORT</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace reveal" id="workspace">
+          <div class="section-heading">
+            <p class="eyebrow">Workspace</p>
+            <h2>Run a fast health check on any public GitHub repository.</h2>
+          </div>
+
+          <div class="control-strip">
+            <label class="field">
+              <span>Repository</span>
+              <input
+                id="repoInput"
+                type="text"
+                placeholder="owner/repo"
+                value="openai/openai-python"
+                spellcheck="false"
+              />
+            </label>
+            <label class="field field-token">
+              <span>GitHub token (optional)</span>
+              <input
+                id="tokenInput"
+                type="password"
+                placeholder="ghp_xxx for higher rate limits"
+                spellcheck="false"
+              />
+            </label>
+            <button id="analyzeButton" class="button button-strong" type="button">Analyze</button>
+          </div>
+
+          <div class="sample-rail" aria-label="Sample repositories">
+            <button type="button" class="sample-pill" data-demo="openai/openai-python">openai/openai-python</button>
+            <button type="button" class="sample-pill" data-demo="microsoft/typescript">microsoft/typescript</button>
+            <button type="button" class="sample-pill" data-demo="vercel/next.js">vercel/next.js</button>
+            <button type="button" class="sample-pill" data-demo="facebook/react">facebook/react</button>
+          </div>
+
+          <p class="workspace-note" id="workspaceNote">
+            Token stays in this tab only. Large repositories are sampled across up to 300 open issues and 300 open PRs for speed.
+          </p>
+
+          <div class="status-line" id="statusLine" aria-live="polite">
+            Ready. Enter a repository and pull live GitHub data.
+          </div>
+
+          <div class="dashboard hidden" id="dashboard">
+            <aside class="summary-rail reveal">
+              <div class="summary-score">
+                <p class="eyebrow">Attention score</p>
+                <div class="score-line">
+                  <strong id="attentionScore">0</strong>
+                  <span>/100</span>
+                </div>
+                <p id="attentionLabel" class="summary-copy">Waiting for repository data.</p>
+              </div>
+              <div class="mini-facts" id="miniFacts"></div>
+            </aside>
+
+            <div class="analysis-flow">
+              <section class="overview reveal">
+                <div class="section-heading">
+                  <p class="eyebrow">Overview</p>
+                  <h3 id="repoTitle">Repository snapshot</h3>
+                </div>
+                <div class="metric-grid" id="metricGrid"></div>
+              </section>
+
+              <section class="triage reveal">
+                <div class="section-heading">
+                  <p class="eyebrow">Backlog</p>
+                  <h3>What needs a maintainer first</h3>
+                </div>
+                <div class="triage-layout">
+                  <div class="lane">
+                    <p class="lane-label">Respond now</p>
+                    <div id="laneNow" class="lane-body"></div>
+                  </div>
+                  <div class="lane">
+                    <p class="lane-label">Schedule next</p>
+                    <div id="laneNext" class="lane-body"></div>
+                  </div>
+                  <div class="lane">
+                    <p class="lane-label">Healthy flow</p>
+                    <div id="laneHealthy" class="lane-body"></div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="pulse reveal">
+                <div class="section-heading">
+                  <p class="eyebrow">Release pulse</p>
+                  <h3>Cadence and momentum at a glance</h3>
+                </div>
+                <div class="pulse-layout">
+                  <div id="releaseSummary" class="copy-block"></div>
+                  <div id="releaseTimeline" class="timeline"></div>
+                </div>
+              </section>
+
+              <section class="topology reveal">
+                <div class="section-heading">
+                  <p class="eyebrow">Ownership</p>
+                  <h3>Contributor concentration</h3>
+                </div>
+                <div id="contributorBars" class="bars"></div>
+              </section>
+
+              <section class="report reveal" id="report">
+                <div class="section-heading">
+                  <p class="eyebrow">Export</p>
+                  <h3>Codex / grant application draft</h3>
+                </div>
+                <div class="report-actions">
+                  <button class="button button-secondary" id="copyReportButton" type="button">
+                    Copy markdown
+                  </button>
+                  <button class="button button-secondary" id="downloadReportButton" type="button">
+                    Download .md
+                  </button>
+                </div>
+                <textarea id="reportOutput" readonly></textarea>
+              </section>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="metricTemplate">
+      <article class="metric">
+        <p class="metric-label"></p>
+        <strong class="metric-value"></strong>
+        <p class="metric-detail"></p>
+      </article>
+    </template>
+
+    <template id="itemTemplate">
+      <a class="work-item" target="_blank" rel="noreferrer">
+        <span class="work-item-type"></span>
+        <strong class="work-item-title"></strong>
+        <span class="work-item-meta"></span>
+      </a>
+    </template>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

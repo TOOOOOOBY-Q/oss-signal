@@ -1,10 +1,25 @@
 # OSS Signal
 
+[![CI](https://github.com/TOOOOOOBY-Q/oss-signal/actions/workflows/ci.yml/badge.svg)](https://github.com/TOOOOOOBY-Q/oss-signal/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/live-demo-0a141b?style=flat-square)](https://tooooooby-q.github.io/oss-signal/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-101d26?style=flat-square)](./LICENSE)
+
 OSS Signal is a polished, zero-build dashboard for public GitHub repositories. It surfaces maintainer pressure from live GitHub API data, highlights stale issues and stalled PRs, maps contributor concentration, and exports a clean markdown draft for grant or Codex-style applications.
 
 The app is static HTML, CSS, and JavaScript, so it is easy to publish with GitHub Pages.
 
 Created by TOOOOOOBY.
+
+[Live demo](https://tooooooby-q.github.io/oss-signal/) | [Repository](https://github.com/TOOOOOOBY-Q/oss-signal)
+
+![OSS Signal preview](./assets/oss-signal-preview.png)
+
+## Why it hits
+
+- It solves a real maintainer pain point instead of wrapping another model endpoint.
+- It looks like a real product, not a throwaway dashboard.
+- It is static and easy to fork, review, publish, and demo from GitHub Pages.
+- It exports something useful immediately: a maintainer-facing Codex or grant application draft.
 
 ## Why this project is worth shipping
 

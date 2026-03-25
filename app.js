@@ -30,6 +30,10 @@ const SAMPLE_LIMITS = {
   contributors: 100,
   commits: 30,
 };
+const BACKLOG_SORT = {
+  sort: "created",
+  direction: "asc",
+};
 
 let activeRequestController = null;
 let latestRequestId = 0;
@@ -224,7 +228,11 @@ async function fetchOptionalJson(url, token, signal, fallback = []) {
   }
 }
 
-async function fetchPagedJson(url, token, { signal, maxItems, label, filterItem = () => true }) {
+async function fetchPagedJson(
+  url,
+  token,
+  { signal, maxItems, label, filterItem = () => true, query = {} }
+) {
   const items = [];
   const collectionLimit = maxItems + 1;
   let page = 1;
@@ -232,30 +240,36 @@ async function fetchPagedJson(url, token, { signal, maxItems, label, filterItem 
 
   while (items.length < collectionLimit) {
     const pageSize = 100;
-    const separator = url.includes("?") ? "&" : "?";
-    const pageUrl = `${url}${separator}per_page=${pageSize}&page=${page}`;
+    const pageUrl = new URL(url);
+    pageUrl.searchParams.set("per_page", String(pageSize));
+    pageUrl.searchParams.set("page", String(page));
+    Object.entries(query).forEach(([key, value]) => {
+      if (value != null) {
+        pageUrl.searchParams.set(key, String(value));
+      }
+    });
 
     let pageItems;
     try {
-      pageItems = await fetchJson(pageUrl, token, signal);
+      pageItems = await fetchJson(pageUrl.toString(), token, signal);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         throw error;
       }
 
-        return {
-          items,
-          warning: items.length
-            ? `${label} partially loaded before GitHub returned an error: ${
-                error instanceof Error ? error.message : "Unknown error."
+      return {
+        items,
+        warning: items.length
+          ? `${label} partially loaded before GitHub returned an error: ${
+              error instanceof Error ? error.message : "Unknown error."
             }`
           : `${label} could not be loaded: ${
               error instanceof Error ? error.message : "Unknown error."
             }`,
-          truncated: false,
-          status: items.length ? "partial" : "unavailable",
-        };
-      }
+        truncated: false,
+        status: items.length ? "partial" : "unavailable",
+      };
+    }
 
     if (!Array.isArray(pageItems)) {
       break;
@@ -324,11 +338,13 @@ async function loadRepository() {
           maxItems: SAMPLE_LIMITS.issues,
           label: "Open issues",
           filterItem: (item) => !item.pull_request,
+          query: BACKLOG_SORT,
         }),
         fetchPagedJson(`${base}/pulls?state=open`, token, {
           signal,
           maxItems: SAMPLE_LIMITS.pulls,
           label: "Open pull requests",
+          query: BACKLOG_SORT,
         }),
         fetchOptionalJson(`${base}/releases?per_page=12`, token, signal),
         fetchPagedJson(`${base}/contributors`, token, {
@@ -417,17 +433,30 @@ function buildAnalysis({
   sampling,
 }) {
   const now = new Date();
+  const issueDataAvailable = sourceStatus.issues === "complete";
+  const pullDataAvailable = sourceStatus.pulls === "complete";
+  const backlogDataAvailable = issueDataAvailable && pullDataAvailable;
   const releaseDataAvailable = sourceStatus.releases === "complete";
   const contributorDataAvailable = sourceStatus.contributors === "complete";
   const commitDataAvailable = sourceStatus.commits === "complete";
   const lastCommitAt = commitDataAvailable
     ? commits[0]?.commit?.committer?.date ?? repoData.pushed_at
     : repoData.pushed_at;
-  const openIssueAges = issues.map((issue) => ageInDays(issue.created_at, now));
-  const openPrAges = pulls.map((pull) => ageInDays(pull.created_at, now));
-  const staleIssues = issues.filter((issue) => ageInDays(issue.created_at, now) >= 30);
-  const silentIssues = issues.filter((issue) => issue.comments === 0 && ageInDays(issue.created_at, now) >= 7);
-  const stalledPulls = pulls.filter((pull) => ageInDays(pull.created_at, now) >= 14);
+  const openIssueAges = issueDataAvailable
+    ? issues.map((issue) => ageInDays(issue.created_at, now))
+    : [];
+  const openPrAges = pullDataAvailable
+    ? pulls.map((pull) => ageInDays(pull.created_at, now))
+    : [];
+  const staleIssues = issueDataAvailable
+    ? issues.filter((issue) => ageInDays(issue.created_at, now) >= 30)
+    : [];
+  const silentIssues = issueDataAvailable
+    ? issues.filter((issue) => issue.comments === 0 && ageInDays(issue.created_at, now) >= 7)
+    : [];
+  const stalledPulls = pullDataAvailable
+    ? pulls.filter((pull) => ageInDays(pull.created_at, now) >= 14)
+    : [];
   const averageIssueAge = average(openIssueAges);
   const averagePrAge = average(openPrAges);
   const releaseIntervals = releaseDataAvailable
@@ -464,54 +493,63 @@ function buildAnalysis({
         contributorTotal
       : null;
 
-  const scoreParts = [
-    staleIssues.length * 2.2,
-    stalledPulls.length * 3.1,
-    Math.min(silentIssues.length, 10),
-  ];
+  const scoreParts = [];
+  if (backlogDataAvailable) {
+    scoreParts.push(
+      staleIssues.length * 2.2,
+      stalledPulls.length * 3.1,
+      Math.min(silentIssues.length, 10)
+    );
 
-  if (releaseDataAvailable) {
-    scoreParts.push(daysSinceLastRelease ? Math.min(daysSinceLastRelease / 3, 24) : 18);
+    if (releaseDataAvailable) {
+      scoreParts.push(daysSinceLastRelease ? Math.min(daysSinceLastRelease / 3, 24) : 18);
+    }
+
+    if (contributorDataAvailable && topContributorShare !== null && topThreeShare !== null) {
+      scoreParts.push(topContributorShare * 28, topThreeShare * 18);
+    }
   }
 
-  if (contributorDataAvailable && topContributorShare !== null && topThreeShare !== null) {
-    scoreParts.push(topContributorShare * 28, topThreeShare * 18);
-  }
-
-  const score = clamp(
-    Math.round(scoreParts.reduce((sum, value) => sum + value, 0)),
-    4,
-    100
-  );
+  const score = backlogDataAvailable
+    ? clamp(
+        Math.round(scoreParts.reduce((sum, value) => sum + value, 0)),
+        4,
+        100
+      )
+    : null;
 
   const scoreLabel =
-    score >= 70
+    !backlogDataAvailable
+      ? "Backlog snapshot incomplete"
+      : score >= 70
       ? "High maintainer pressure"
       : score >= 40
         ? "Watchlist pressure"
         : "Healthy operating range";
 
-  const urgencyItems = rankItems(
-    [
-      ...issues.map((issue) => ({
-        kind: "Issue",
-        title: issue.title,
-        url: issue.html_url,
-        age: ageInDays(issue.created_at, now),
-        score: ageInDays(issue.created_at, now) * 1.2 + (issue.comments === 0 ? 8 : 0),
-        detail: `${ageInDays(issue.created_at, now)}d open${issue.comments === 0 ? " | no replies" : ` | ${issue.comments} comments`}`,
-      })),
-      ...pulls.map((pull) => ({
-        kind: "PR",
-        title: pull.title,
-        url: pull.html_url,
-        age: ageInDays(pull.created_at, now),
-        score: ageInDays(pull.created_at, now) * 1.5 + (pull.draft ? -4 : 6),
-        detail: `${ageInDays(pull.created_at, now)}d open${pull.draft ? " | draft" : " | review needed"}`,
-      })),
-    ],
-    8
-  );
+  const urgencyItems = backlogDataAvailable
+    ? rankItems(
+        [
+          ...issues.map((issue) => ({
+            kind: "Issue",
+            title: issue.title,
+            url: issue.html_url,
+            age: ageInDays(issue.created_at, now),
+            score: ageInDays(issue.created_at, now) * 1.2 + (issue.comments === 0 ? 8 : 0),
+            detail: `${ageInDays(issue.created_at, now)}d open${issue.comments === 0 ? " | no replies" : ` | ${issue.comments} comments`}`,
+          })),
+          ...pulls.map((pull) => ({
+            kind: "PR",
+            title: pull.title,
+            url: pull.html_url,
+            age: ageInDays(pull.created_at, now),
+            score: ageInDays(pull.created_at, now) * 1.5 + (pull.draft ? -4 : 6),
+            detail: `${ageInDays(pull.created_at, now)}d open${pull.draft ? " | draft" : " | review needed"}`,
+          })),
+        ],
+        8
+      )
+    : [];
 
   const triage = {
     now: urgencyItems.filter((item) => item.score >= 35).slice(0, 4),
@@ -538,6 +576,9 @@ function buildAnalysis({
           : "Distributed ownership";
 
   const scoreLimitations = [];
+  if (!backlogDataAvailable) {
+    scoreLimitations.push("backlog pressure excluded because issues or pull requests were incomplete");
+  }
   if (!releaseDataAvailable) {
     scoreLimitations.push("release cadence excluded");
   }
@@ -563,6 +604,7 @@ function buildAnalysis({
     snapshotAt: now.toISOString(),
     score,
     scoreLabel,
+    backlogDataAvailable,
     issues,
     pulls,
     releases,
@@ -592,22 +634,42 @@ function buildAnalysis({
 
 function renderAnalysis(analysis) {
   repoTitle.textContent = analysis.repo;
-  attentionScore.textContent = String(analysis.score);
+  attentionScore.textContent = analysis.score === null ? "N/A" : String(analysis.score);
   attentionLabel.textContent = analysis.scoreLabel;
-  attentionLabel.className = `summary-copy ${toneForScore(analysis.score)}`;
+  attentionLabel.className = `summary-copy ${
+    analysis.score === null ? "tone-medium" : toneForScore(analysis.score)
+  }`;
 
   miniFacts.innerHTML = `
     <div>Stars: ${formatInteger(analysis.repoData.stargazers_count)}</div>
     <div>Forks: ${formatInteger(analysis.repoData.forks_count)}</div>
-    <div>${analysis.sampling.issuesTruncated ? "Sampled issues" : "Open issues"}: ${analysis.issues.length}</div>
-    <div>${analysis.sampling.pullsTruncated ? "Sampled PRs" : "Open PRs"}: ${analysis.pulls.length}</div>
+    <div>${formatSnapshotCount("Issues", analysis.issues.length, analysis.sourceStatus.issues, analysis.sampling.issuesTruncated, "oldest open issues")}</div>
+    <div>${formatSnapshotCount("PRs", analysis.pulls.length, analysis.sourceStatus.pulls, analysis.sampling.pullsTruncated, "oldest open PRs")}</div>
     <div>Last push: ${formatDate(analysis.lastCommitAt)}</div>
   `;
 
   renderMetrics(analysis);
-  renderLane(laneNow, analysis.triage.now, "No immediate blockers surfaced.");
-  renderLane(laneNext, analysis.triage.next, "The backlog looks surprisingly under control.");
-  renderLane(laneHealthy, analysis.triage.healthy, "No low-urgency items were sampled.");
+  renderLane(
+    laneNow,
+    analysis.triage.now,
+    analysis.backlogDataAvailable
+      ? "No immediate blockers surfaced."
+      : "Backlog lanes are unavailable because the issues or pull requests snapshot was incomplete."
+  );
+  renderLane(
+    laneNext,
+    analysis.triage.next,
+    analysis.backlogDataAvailable
+      ? "The backlog looks surprisingly under control."
+      : "Scheduling guidance is withheld until GitHub returns a complete backlog snapshot."
+  );
+  renderLane(
+    laneHealthy,
+    analysis.triage.healthy,
+    analysis.backlogDataAvailable
+      ? "No low-urgency items were sampled."
+      : "Healthy-flow suggestions are unavailable without complete backlog data."
+  );
   renderReleaseSection(analysis);
   renderContributors(analysis);
   reportOutput.value = buildReportMarkdown(analysis);
@@ -636,7 +698,7 @@ function buildWarningItems(analysis) {
 
   if (analysis.sampling.issuesTruncated || analysis.sampling.pullsTruncated) {
     items.push(
-      `Backlog metrics are sampled from the first ${SAMPLE_LIMITS.issues} open issues and ${SAMPLE_LIMITS.pulls} open pull requests returned by GitHub.`
+      `Backlog metrics are sampled from the oldest ${SAMPLE_LIMITS.issues} open issues and oldest ${SAMPLE_LIMITS.pulls} open pull requests returned by GitHub.`
     );
   }
 
@@ -652,17 +714,21 @@ function renderMetrics(analysis) {
   const metrics = [
     {
       label: "Stale issues",
-      value: analysis.staleIssues.length,
+      value: analysis.sourceStatus.issues === "complete" ? analysis.staleIssues.length : "Unavailable",
       detail:
-        analysis.staleIssues.length > 0
+        analysis.sourceStatus.issues !== "complete"
+          ? "Issue backlog data was incomplete, so stale-issue pressure is withheld."
+          : analysis.staleIssues.length > 0
           ? `${Math.round(percentage(analysis.staleIssues.length, analysis.issues.length))}% of open issues are older than 30 days.`
           : "No stale issue pressure in the sampled window.",
     },
     {
       label: "Stalled PRs",
-      value: analysis.stalledPulls.length,
+      value: analysis.sourceStatus.pulls === "complete" ? analysis.stalledPulls.length : "Unavailable",
       detail:
-        analysis.stalledPulls.length > 0
+        analysis.sourceStatus.pulls !== "complete"
+          ? "Pull request backlog data was incomplete, so stalled-PR pressure is withheld."
+          : analysis.stalledPulls.length > 0
           ? `${Math.round(analysis.averagePrAge)} day average age across open PRs.`
           : "Open pull requests are still moving quickly.",
     },
@@ -694,13 +760,22 @@ function renderMetrics(analysis) {
     },
     {
       label: "Issue age",
-      value: `${Math.round(analysis.averageIssueAge || 0)}d`,
-      detail: "Average age of current open issues.",
+      value:
+        analysis.sourceStatus.issues === "complete"
+          ? `${Math.round(analysis.averageIssueAge || 0)}d`
+          : "Unavailable",
+      detail:
+        analysis.sourceStatus.issues === "complete"
+          ? "Average age of current open issues."
+          : "Issue age is withheld until GitHub returns a complete issue snapshot.",
     },
     {
       label: "Silent issues",
-      value: analysis.silentIssues.length,
-      detail: "Open for at least 7 days with zero comments.",
+      value: analysis.sourceStatus.issues === "complete" ? analysis.silentIssues.length : "Unavailable",
+      detail:
+        analysis.sourceStatus.issues === "complete"
+          ? "Open for at least 7 days with zero comments."
+          : "Silent-issue counts are withheld until the issue backlog fully loads.",
     },
     {
       label: "Last release",
@@ -831,16 +906,36 @@ function renderContributors(analysis) {
 
 function buildReportMarkdown(analysis) {
   const samplingNote =
-    analysis.sampling.issuesTruncated || analysis.sampling.pullsTruncated
-      ? `The backlog snapshot is sampled from the first ${SAMPLE_LIMITS.issues} open issues and ${SAMPLE_LIMITS.pulls} open pull requests returned by GitHub for speed.`
+    !analysis.backlogDataAvailable
+      ? "The backlog snapshot was incomplete from GitHub, so issue and pull-request pressure was excluded from this draft."
+      : analysis.sampling.issuesTruncated || analysis.sampling.pullsTruncated
+      ? `The backlog snapshot is sampled from the oldest ${SAMPLE_LIMITS.issues} open issues and oldest ${SAMPLE_LIMITS.pulls} open pull requests returned by GitHub for speed.`
       : "The backlog snapshot covers the currently returned open issues and pull requests from GitHub.";
   const demandLine =
-    analysis.sampling.issuesTruncated || analysis.sampling.pullsTruncated
-      ? `The project shows active community demand, with a sampled snapshot of ${analysis.issues.length} open issues and ${analysis.pulls.length} open pull requests in the current view.`
+    !analysis.backlogDataAvailable
+      ? "GitHub did not return a complete issues and pull-requests view for this snapshot, so backlog demand should be verified before using this draft in an application."
+      : analysis.sampling.issuesTruncated || analysis.sampling.pullsTruncated
+      ? `The project shows active community demand, with a sampled snapshot of ${analysis.issues.length} oldest open issues and ${analysis.pulls.length} oldest open pull requests in the current view.`
       : `The project shows active community demand, with ${analysis.issues.length} open issues and ${analysis.pulls.length} open pull requests in the current snapshot.`;
   const limitationsLine = analysis.scoreLimitations.length
     ? `Score note: ${analysis.scoreLimitations.join("; ")}.`
     : null;
+  const staleIssuesLine =
+    analysis.sourceStatus.issues === "complete"
+      ? `${analysis.staleIssues.length} open issues are older than 30 days.`
+      : "Open-issue age pressure was excluded because the issue backlog did not fully load.";
+  const silentIssuesLine =
+    analysis.sourceStatus.issues === "complete"
+      ? `${analysis.silentIssues.length} open issues have had no replies for at least 7 days.`
+      : "Silent-issue counts were excluded because the issue backlog did not fully load.";
+  const stalledPullsLine =
+    analysis.sourceStatus.pulls === "complete"
+      ? `${analysis.stalledPulls.length} open pull requests are older than 14 days.`
+      : "Stalled pull-request counts were excluded because the PR backlog did not fully load.";
+  const scoreLine =
+    analysis.score === null
+      ? "Overall attention score was withheld because the backlog snapshot was incomplete."
+      : `Overall attention score: ${analysis.score}/100 (${analysis.scoreLabel}).`;
 
   return `# Codex for Open Source draft
 
@@ -856,11 +951,11 @@ Snapshot taken: ${formatDate(analysis.snapshotAt)}
 
 ## Maintainer pressure in the current snapshot
 
-- ${analysis.staleIssues.length} open issues are older than 30 days.
-- ${analysis.silentIssues.length} open issues have had no replies for at least 7 days.
-- ${analysis.stalledPulls.length} open pull requests are older than 14 days.
+- ${staleIssuesLine}
+- ${silentIssuesLine}
+- ${stalledPullsLine}
 - ${analysis.ownerNote}
-- Overall attention score: ${analysis.score}/100 (${analysis.scoreLabel}).
+- ${scoreLine}
 - ${samplingNote}
 ${limitationsLine ? `- ${limitationsLine}` : ""}
 
@@ -891,7 +986,7 @@ function buildWorkspaceNote(analysis) {
 
   if (analysis.sampling.issuesTruncated || analysis.sampling.pullsTruncated) {
     notes.push(
-      `Backlog view is sampled across the first ${SAMPLE_LIMITS.issues} open issues and ${SAMPLE_LIMITS.pulls} open PRs for speed.`
+      `Backlog view is sampled across the oldest ${SAMPLE_LIMITS.issues} open issues and oldest ${SAMPLE_LIMITS.pulls} open PRs for speed.`
     );
   } else {
     notes.push("Backlog view includes all currently returned open issues and PRs from GitHub.");
@@ -976,6 +1071,16 @@ function toneForScore(score) {
 
 function setStatus(message) {
   statusLine.textContent = message;
+}
+
+function formatSnapshotCount(label, count, status, truncated, sampledLabel) {
+  if (status === "complete") {
+    return `${truncated ? `Sampled ${sampledLabel}` : label}: ${count}`;
+  }
+  if (status === "partial") {
+    return `${label}: ${count} loaded (partial)`;
+  }
+  return `${label}: unavailable`;
 }
 
 function escapeHtml(value) {

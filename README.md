@@ -31,7 +31,7 @@ Created by TOOOOOOBY.
 ## Features
 
 - Live GitHub API fetch for repo metadata, issues, pull requests, releases, contributors, and recent commits
-- Paginated backlog fetch across up to 300 open issues and 300 open pull requests for better signal on larger repos
+- Paginated backlog fetch across up to 300 oldest open issues and 300 oldest open pull requests for better signal on larger repos
 - Attention score that estimates backlog and ownership pressure
 - Triage lanes for "respond now", "schedule next", and "healthy flow"
 - Release cadence summary with recent tagged releases
@@ -96,7 +96,7 @@ If you want this project to help an application, pitch it honestly:
 - The token is kept in `sessionStorage`, not long-term browser storage, so it clears when the tab closes.
 - GitHub contributor stats are a useful signal, not a perfect measure of maintainership.
 - If a project has no releases, the release cadence section will say so instead of inventing a story.
-- Some very large repositories may still be analyzed as a bounded sample so the app stays fast in GitHub Pages.
+- Some very large repositories are analyzed as a bounded sample of the oldest open backlog items so the app stays fast in GitHub Pages.
 
 ## License
 
